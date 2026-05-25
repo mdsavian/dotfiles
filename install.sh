@@ -26,50 +26,17 @@ fi
 # --- 2. Brew packages ---
 log "Installing brew formulae..."
 BREW_PACKAGES=(
-  ansible
   asdf
-  cmake
   fzf
   gh
-  golang-migrate
-  grpcurl
-  k6
-  kind
-  kubectx
-  kubernetes-cli
-  lua
-  neovim
-  poppler
-  postgresql@18
-  protobuf
-  python@3.11
   tmux
   zoxide
   zsh
 )
 brew install "${BREW_PACKAGES[@]}" || warn "Some formulae may already be installed"
 
-log "Installing tapped formulae..."
-brew install derailed/k9s/k9s || true
-brew install dopplerhq/cli/doppler || true
-brew install tilt-dev/tap/ctlptl || true
-brew install tilt || true
-
 log "Installing brew casks (apps)..."
-BREW_CASKS=(
-  claude-code
-  codex
-  cursor
-  dbeaver-community
-  docker-desktop
-  gcloud-cli
-  iterm2
-  ngrok
-  postman
-  slack
-  visual-studio-code
-)
-brew install --cask "${BREW_CASKS[@]}" || warn "Some casks may already be installed"
+brew install --cask iterm2 || warn "iterm2 may already be installed"
 
 # --- 3. fzf shell integration ---
 if [[ ! -f "$HOME/.fzf.zsh" ]]; then
@@ -162,17 +129,12 @@ NEXT STEPS (manual):
 
   1. Restart your terminal (or `exec zsh`) to load the new shell.
   2. Generate a new SSH key for THIS machine and add it to GitHub:
-       ssh-keygen -t ed25519 -C "your-work-email@example.com"
+       ssh-keygen -t ed25519 -C "your-email@example.com"
        gh auth login           # uses the browser; no token in .gitconfig
        gh ssh-key add ~/.ssh/id_ed25519.pub --title "$(hostname)"
-  3. Configure cloud credentials fresh on this machine:
-       aws configure sso         (if you use AWS SSO)
-       doppler login
-       gcloud auth login
-       kubectx / kubeconfig as needed
-  4. Open tmux and press `prefix + I` if any plugins are missing.
-  5. Install your Node version: `nvm install --lts`
-  6. (Optional) Re-run `p10k configure` if the prompt looks off.
+  3. Open tmux and press `prefix + I` if any plugins are missing.
+  4. Install your Node version: `nvm install --lts`
+  5. (Optional) Re-run `p10k configure` if the prompt looks off.
 
 If something looks wrong, your old dotfiles are in:
 EOF
