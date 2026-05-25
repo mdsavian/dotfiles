@@ -44,31 +44,6 @@ export NVM_DIR="$HOME/.nvm"
 export PATH=$PATH:/usr/local/go/bin
 
 
-# alternative aws alias
-alias ssodev='aws sso login --profile dev'
-alias ssoprod='aws sso login --profile prod'
-alias k9sprod='kubectx prod && k9s'
-alias k9sstg='kubectx staging && k9s'
-alias k9sdemo='kubectx demo && k9s'
-
-rdsstaging() {
-    genpass rdsdbstaging.cjg7xp1zczeo.us-east-1.rds.amazonaws.com dev
-}
-
-rdsdemo() {
-    genpass rdsdbsdemo.cjg7xp1zczeo.us-east-1.rds.amazonaws.com dev
-}
-
-rdsprod() {
-    genpass rdsdbprod.cnfynuntdlwf.us-east-1.rds.amazonaws.com prod
-}
-
-genpass() {
-    PASS="$(aws rds generate-db-auth-token --hostname $1 --port 5432 --region us-east-1 --username marlon@alternativepayments.io --profile $2)"
-    printf "%s" "$PASS" | pbcopy
-    echo "Password copied to clipboard"
-}
-
 # git alias
 alias gcdp='git checkout development && git pull'
 alias gcmp='git checkout main && git pull'
