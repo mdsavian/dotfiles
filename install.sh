@@ -116,6 +116,19 @@ link "$DOTFILES_DIR/zsh/.p10k.zsh"   "$HOME/.p10k.zsh"
 link "$DOTFILES_DIR/tmux/.tmux.conf" "$HOME/.tmux.conf"
 link "$DOTFILES_DIR/git/.gitconfig"  "$HOME/.gitconfig"
 
+# --- 9b. iTerm2 prefs (load from this repo, not ~/Library/Preferences) ---
+# iTerm2 rewrites its plist on save, so we don't symlink it; instead we point
+# iTerm2 at a custom folder in this repo via its native "load prefs" feature.
+ITERM_PREFS_DIR="$DOTFILES_DIR/iterm2"
+if [[ -d "$ITERM_PREFS_DIR" ]]; then
+  log "Pointing iTerm2 at custom prefs folder..."
+  defaults write com.googlecode.iterm2 PrefsCustomFolder -string "$ITERM_PREFS_DIR"
+  defaults write com.googlecode.iterm2 LoadPrefsFromCustomFolder -bool true
+  ok "iTerm2 set to load prefs from $ITERM_PREFS_DIR (restart iTerm2 to apply)"
+else
+  warn "iTerm2 prefs folder not found at $ITERM_PREFS_DIR; skipping"
+fi
+
 # --- 10. Install tmux plugins via tpm ---
 log "Installing tmux plugins via tpm..."
 "$TPM_DIR/bin/install_plugins" || warn "tpm install_plugins failed; run prefix + I inside tmux"
@@ -135,6 +148,9 @@ NEXT STEPS (manual):
   3. Open tmux and press `prefix + I` if any plugins are missing.
   4. Install your Node version: `nvm install --lts`
   5. (Optional) Re-run `p10k configure` if the prompt looks off.
+  6. Restart iTerm2 so it loads prefs from the repo. Then in
+     Settings > General > Settings, set "Save changes" to "Automatically"
+     so future tweaks are written back to the repo.
 
 If something looks wrong, your old dotfiles are in:
 EOF
