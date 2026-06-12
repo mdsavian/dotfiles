@@ -1,5 +1,12 @@
 [url "git@github.com:"]
 	insteadOf = https://github.com/
 [user]
-	name = mdsavian
-	email = marlon.savian@gmail.com
+	name = Marlon Savian 
+	email = marlon.savian@ledn.io
+	signingkey = 37BD9CBD5B9B159D
+[commit]
+    gpgSign = true
+[merge]
+    gpgSign = true
+[gpg]
+    program = gpg2
