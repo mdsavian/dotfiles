@@ -5,8 +5,8 @@
 	email = marlon.savian@ledn.io
 	signingkey = 37BD9CBD5B9B159D
 [commit]
-    gpgSign = true
+    gpgSign = false
 [merge]
-    gpgSign = true
+    gpgSign = false
 [gpg]
     program = gpg2
