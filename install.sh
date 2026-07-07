@@ -116,6 +116,9 @@ link "$DOTFILES_DIR/zsh/.p10k.zsh"   "$HOME/.p10k.zsh"
 link "$DOTFILES_DIR/tmux/.tmux.conf" "$HOME/.tmux.conf"
 link "$DOTFILES_DIR/git/.gitconfig"  "$HOME/.gitconfig"
 
+mkdir -p "$HOME/.local/bin"
+link "$DOTFILES_DIR/bin/wt" "$HOME/.local/bin/wt"
+
 # --- 9b. iTerm2 prefs (load from this repo, not ~/Library/Preferences) ---
 # iTerm2 rewrites its plist on save, so we don't symlink it; instead we point
 # iTerm2 at a custom folder in this repo via its native "load prefs" feature.

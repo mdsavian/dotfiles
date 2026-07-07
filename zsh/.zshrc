@@ -51,7 +51,21 @@ alias z='zi'
 
 alias claudio='claude --dangerously-skip-permissions'
 
+# Local bin (personal scripts, e.g. `wt`)
+export PATH="$HOME/.local/bin:$PATH"
 
+# wt: pooled git worktree tool (~/.local/bin/wt) — cd on go/create, passthrough otherwise
+wt() {
+  case "$1" in
+    go|create)
+      local target
+      target=$(command wt "$@") && cd "$target"
+      ;;
+    *)
+      command wt "$@"
+      ;;
+  esac
+}
 
 # Machine-local secrets / env (not committed — see ~/.zshrc.local)
 [ -f ~/.zshrc.local ] && source ~/.zshrc.local

@@ -1,0 +1,308 @@
+#!/usr/bin/env bash
+# Pooled git worktree tool. See `wt help`.
+set -euo pipefail
+
+# ---------- repo/pool resolution ----------
+
+die() { echo "wt: $*" >&2; exit 1; }
+
+require_git_repo() {
+  git rev-parse --is-inside-work-tree >/dev/null 2>&1 || die "not inside a git repository"
+}
+
+# Resolve the MAIN repo root even when invoked from inside a linked worktree.
+resolve_repo_root() {
+  local common_dir
+  common_dir=$(git rev-parse --git-common-dir)
+  case "$common_dir" in
+    /*) : ;;
+    *) common_dir="$(pwd)/$common_dir" ;;
+  esac
+  (cd "$common_dir/.." && pwd)
+}
+
+hash_file() {
+  if [ -f "$1" ]; then
+    shasum -a 256 "$1" | awk '{print $1}'
+  else
+    echo "none"
+  fi
+}
+
+load_config() {
+  REPO_ROOT=$(resolve_repo_root)
+  REPO_NAME=$(basename "$REPO_ROOT")
+  POOL_DIR="$(cd "$REPO_ROOT/.." && pwd)/${REPO_NAME}.worktrees"
+  META_DIR="$POOL_DIR/.wt-meta"
+
+  WT_POOL_SIZE=4
+  WT_BASE_REF=""
+  WT_LOCKFILE=""
+  WT_INSTALL_CMD=""
+
+  if [ -f "$REPO_ROOT/.wtrc" ]; then
+    # shellcheck disable=SC1091
+    . "$REPO_ROOT/.wtrc"
+  fi
+
+  if [ -z "$WT_BASE_REF" ]; then
+    if git -C "$REPO_ROOT" rev-parse --verify --quiet origin/dev >/dev/null 2>&1; then
+      WT_BASE_REF="origin/dev"
+    else
+      WT_BASE_REF="origin/main"
+    fi
+  fi
+
+  if [ -z "$WT_LOCKFILE" ]; then
+    if [ -f "$REPO_ROOT/package-lock.json" ]; then
+      WT_LOCKFILE="package-lock.json"
+      WT_INSTALL_CMD=${WT_INSTALL_CMD:-"npm ci"}
+    elif [ -f "$REPO_ROOT/yarn.lock" ]; then
+      WT_LOCKFILE="yarn.lock"
+      WT_INSTALL_CMD=${WT_INSTALL_CMD:-"yarn install --frozen-lockfile"}
+    elif [ -f "$REPO_ROOT/pnpm-lock.yaml" ]; then
+      WT_LOCKFILE="pnpm-lock.yaml"
+      WT_INSTALL_CMD=${WT_INSTALL_CMD:-"pnpm install --frozen-lockfile"}
+    fi
+  fi
+
+  # Make `nvm use` work inside the install command if the caller's .wtrc uses it.
+  export NVM_DIR="${NVM_DIR:-$HOME/.nvm}"
+  # shellcheck disable=SC1091
+  [ -s "$NVM_DIR/nvm.sh" ] && . "$NVM_DIR/nvm.sh" >/dev/null 2>&1 || true
+}
+
+slot_path() { echo "$POOL_DIR/tree-$1"; }
+
+slot_branch() {
+  local slot="$1" b
+  b=$(git -C "$slot" branch --show-current 2>/dev/null || true)
+  echo "$b"
+}
+
+slot_is_dirty() {
+  local slot="$1"
+  [ -n "$(git -C "$slot" status --porcelain 2>/dev/null)" ]
+}
+
+slot_is_unpushed() {
+  local slot="$1" upstream
+  upstream=$(git -C "$slot" rev-parse --abbrev-ref --symbolic-full-name '@{u}' 2>/dev/null || true)
+  if [ -n "$upstream" ]; then
+    [ "$(git -C "$slot" rev-list --count "$upstream..HEAD" 2>/dev/null || echo 0)" != "0" ]
+  else
+    [ "$(git -C "$slot" rev-list --count "$WT_BASE_REF..HEAD" 2>/dev/null || echo 0)" != "0" ]
+  fi
+}
+
+touch_last_used() {
+  mkdir -p "$META_DIR"
+  date +%s > "$META_DIR/tree-$1.last-used"
+}
+
+last_used() {
+  local f="$META_DIR/tree-$1.last-used"
+  [ -f "$f" ] && cat "$f" || echo 0
+}
+
+maybe_install() {
+  local slot="$1"
+  local hash_new hash_old hash_file_path
+  hash_file_path="$META_DIR/tree-$(basename "$slot" | sed 's/tree-//').hash"
+  mkdir -p "$META_DIR"
+  hash_new=$(hash_file "$slot/$WT_LOCKFILE")
+  hash_old=$( [ -f "$hash_file_path" ] && cat "$hash_file_path" || echo "" )
+  if [ "$hash_new" = "$hash_old" ] && [ "$hash_new" != "none" ]; then
+    echo "wt: lockfile unchanged, skipping install ($slot)" >&2
+    return 0
+  fi
+  if [ -z "$WT_INSTALL_CMD" ]; then
+    echo "wt: no install command configured (set WT_INSTALL_CMD in .wtrc), skipping" >&2
+    return 0
+  fi
+  echo "wt: installing deps in $slot ..." >&2
+  ( cd "$slot" && bash -c "$WT_INSTALL_CMD" ) >&2
+  echo "$hash_new" > "$hash_file_path"
+}
+
+ensure_pool() {
+  mkdir -p "$POOL_DIR" "$META_DIR"
+  local i slot
+  for i in $(seq 1 "$WT_POOL_SIZE"); do
+    slot=$(slot_path "$i")
+    if [ ! -d "$slot" ]; then
+      echo "wt: creating slot tree-$i from $WT_BASE_REF" >&2
+      git -C "$REPO_ROOT" worktree add --detach "$slot" "$WT_BASE_REF" >&2
+      maybe_install "$slot"
+    fi
+  done
+}
+
+# ---------- subcommands ----------
+
+cmd_init() {
+  ensure_pool
+  echo "wt: pool ready at $POOL_DIR" >&2
+}
+
+cmd_create() {
+  local branch="" base="$WT_BASE_REF"
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --base) base="$2"; shift 2 ;;
+      -*) die "unknown option $1" ;;
+      *) branch="$1"; shift ;;
+    esac
+  done
+  [ -n "$branch" ] || die "usage: wt create <branch> [--base <ref>]"
+
+  ensure_pool
+
+  local i slot b target=""
+  for i in $(seq 1 "$WT_POOL_SIZE"); do
+    slot=$(slot_path "$i")
+    b=$(slot_branch "$slot")
+    if [ "$b" = "$branch" ]; then target="$slot"; break; fi
+  done
+
+  if [ -z "$target" ]; then
+    for i in $(seq 1 "$WT_POOL_SIZE"); do
+      slot=$(slot_path "$i")
+      b=$(slot_branch "$slot")
+      if [ -z "$b" ]; then target="$slot"; break; fi
+    done
+  fi
+
+  if [ -z "$target" ]; then
+    local oldest_i=1 oldest_ts
+    oldest_ts=$(last_used 1)
+    for i in $(seq 2 "$WT_POOL_SIZE"); do
+      local ts; ts=$(last_used "$i")
+      if [ "$ts" -lt "$oldest_ts" ]; then oldest_i="$i"; oldest_ts="$ts"; fi
+    done
+    slot=$(slot_path "$oldest_i")
+    b=$(slot_branch "$slot")
+    if slot_is_dirty "$slot" || slot_is_unpushed "$slot"; then
+      die "pool full and tree-$oldest_i (branch '$b') has uncommitted/unpushed work; run 'wt release $b' or push it first"
+    fi
+    echo "wt: pool full, reassigning tree-$oldest_i (was on '$b')" >&2
+    target="$slot"
+  fi
+
+  b=$(slot_branch "$target")
+  if [ "$b" != "$branch" ]; then
+    if git -C "$REPO_ROOT" show-ref --verify --quiet "refs/heads/$branch"; then
+      git -C "$target" checkout "$branch" >&2
+    elif git -C "$REPO_ROOT" rev-parse --verify --quiet "origin/$branch" >/dev/null 2>&1; then
+      git -C "$target" checkout -b "$branch" "origin/$branch" >&2
+    else
+      git -C "$target" checkout -b "$branch" "$base" >&2
+    fi
+  fi
+
+  maybe_install "$target"
+  touch_last_used "$(basename "$target" | sed 's/tree-//')"
+  echo "$target"
+}
+
+cmd_go() {
+  local query="$1"
+  local i slot b matches=""
+  for i in $(seq 1 "$WT_POOL_SIZE"); do
+    slot=$(slot_path "$i")
+    [ -d "$slot" ] || continue
+    b=$(slot_branch "$slot")
+    case "$b" in
+      *"$query"*) matches="$matches$slot|$b"$'\n' ;;
+    esac
+  done
+  matches=$(echo "$matches" | sed '/^$/d')
+  local count; count=$(echo "$matches" | grep -c . || true)
+  if [ "$count" = "0" ]; then
+    die "no worktree slot matches '$query'"
+  elif [ "$count" = "1" ]; then
+    echo "$matches" | cut -d'|' -f1
+  else
+    if command -v fzf >/dev/null 2>&1 && [ -t 1 ]; then
+      echo "$matches" | fzf --with-nth=2 -d'|' | cut -d'|' -f1
+    else
+      die "multiple slots match '$query':"$'\n'"$(echo "$matches" | tr '|' ' -> ')"
+    fi
+  fi
+}
+
+cmd_list() {
+  local full="${1:-}"
+  local i slot b dirty
+  printf "%-8s %-40s %-8s %s\n" "SLOT" "BRANCH" "DIRTY" "LAST USED"
+  for i in $(seq 1 "$WT_POOL_SIZE"); do
+    slot=$(slot_path "$i")
+    [ -d "$slot" ] || { printf "%-8s %-40s %-8s %s\n" "tree-$i" "(not created)" "-" "-"; continue; }
+    b=$(slot_branch "$slot")
+    [ -n "$b" ] || b="(detached)"
+    dirty="clean"
+    slot_is_dirty "$slot" && dirty="dirty"
+    local ts; ts=$(last_used "$i")
+    printf "%-8s %-40s %-8s %s\n" "tree-$i" "$b" "$dirty" "$ts"
+    if [ "$full" = "--full" ] && [ "$b" != "(detached)" ]; then
+      git -C "$slot" log --oneline -1
+    fi
+  done
+}
+
+cmd_release() {
+  local query="" force=0 delete_branch=0
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --force) force=1; shift ;;
+      --delete-branch) delete_branch=1; shift ;;
+      *) query="$1"; shift ;;
+    esac
+  done
+  [ -n "$query" ] || die "usage: wt release <branch-fuzzy> [--force] [--delete-branch]"
+
+  local slot; slot=$(cmd_go "$query")
+  local b; b=$(slot_branch "$slot")
+
+  if [ "$force" != "1" ]; then
+    slot_is_dirty "$slot" && die "$slot has uncommitted changes; commit/stash or pass --force"
+    slot_is_unpushed "$slot" && die "$slot has unpushed commits on '$b'; push or pass --force"
+  fi
+
+  git -C "$slot" checkout --detach "$WT_BASE_REF"
+  echo "wt: released $slot (was '$b')" >&2
+  if [ "$delete_branch" = "1" ]; then
+    git -C "$REPO_ROOT" branch -D "$b" 2>/dev/null || true
+  fi
+}
+
+cmd_help() {
+  cat <<'EOF'
+wt — pooled git worktree tool
+
+  wt init                          create the worktree pool for the current repo
+  wt create <branch> [--base ref]  checkout <branch> into a pooled slot, print its path
+  wt go <fuzzy>                    print the path of the slot whose branch matches
+  wt list [--full]                 show slot -> branch -> dirty -> last-used
+  wt release <fuzzy> [--force] [--delete-branch]
+                                    detach a slot back to the base ref, freeing it
+
+Config: <repo>/.wtrc (shell key=value): WT_POOL_SIZE, WT_BASE_REF, WT_LOCKFILE, WT_INSTALL_CMD
+Pool lives at <repo-parent>/<repo-name>.worktrees/tree-{1..N}
+EOF
+}
+
+main() {
+  local cmd="${1:-help}"; shift || true
+  case "$cmd" in
+    init) require_git_repo; load_config; cmd_init "$@" ;;
+    create) require_git_repo; load_config; cmd_create "$@" ;;
+    go) require_git_repo; load_config; cmd_go "$@" ;;
+    list) require_git_repo; load_config; cmd_list "$@" ;;
+    release) require_git_repo; load_config; cmd_release "$@" ;;
+    help|-h|--help) cmd_help ;;
+    *) die "unknown command '$cmd' (see 'wt help')" ;;
+  esac
+}
+
+main "$@"
