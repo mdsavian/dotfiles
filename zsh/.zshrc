@@ -54,17 +54,6 @@ alias claudio='claude --dangerously-skip-permissions'
 # Local bin (personal scripts, e.g. `wt`)
 export PATH="$HOME/.local/bin:$PATH"
 
-# ROSilicon profiles
-rosilicon-profile() {
-  local profile="${1:-conta-1}"
-  nohup env RO_ROOT="$HOME/Library/Application Support/ROSilicon/profiles/$profile" \
-    "$HOME/Documents/ROSilicon/ROSilicon.app/Contents/MacOS/ROSilicon" \
-    >/dev/null 2>&1 &
-}
-alias rag1='rosilicon-profile conta-1'
-alias rag2='rosilicon-profile conta-2'
-
-
 # wt: pooled git worktree tool (~/.local/bin/wt) — cd on go/create, passthrough otherwise
 wt() {
   case "$1" in
