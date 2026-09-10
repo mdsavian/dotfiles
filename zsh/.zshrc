@@ -63,6 +63,8 @@ rosilicon-profile() {
 }
 alias rag1='rosilicon-profile conta-1'
 alias rag2='rosilicon-profile conta-2'
+alias rag3='rosilicon-profile conta-3'
+alias rag4='rosilicon-profile conta-4'
 
 # wt: pooled git worktree tool (~/.local/bin/wt) — cd on go/create, passthrough otherwise
 wt() {
